@@ -1,0 +1,575 @@
+```html
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- Meta etiquetas PWA para Android / Chrome a pantalla completa -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#111827">
+    
+    <!-- Web App Manifest embebido para instalación nativa -->
+    <link rel="manifest" href="data:application/manifest+json;utf8,%7B%22name%22%3A%22Taxi%20Control%22%2C%22short_name%22%3A%22TaxiCobros%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23111827%22%2C%22theme_color%22%3A%22%23111827%22%7D">
+
+    <title>Taxi Cobros - Control Diario</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Iconos -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- SheetJS para exportar a Excel -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        taxi: {
+                            gold: '#F59E0B',
+                            dark: '#111827'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .touch-none-select {
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1f2937;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #4b5563;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen flex flex-col font-sans touch-none-select pb-6">
+
+    <!-- Encabezado -->
+    <header class="bg-gray-900 border-b border-gray-800 p-4 sticky top-0 z-20 shadow-md">
+        <div class="max-w-5xl mx-auto flex justify-between items-center">
+            <div class="flex items-center space-x-3">
+                <div class="bg-amber-500 text-gray-950 p-2.5 rounded-xl text-xl font-black flex items-center justify-center shadow-lg shadow-amber-500/20">
+                    <i class="fa-solid fa-taxi"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight text-white flex items-center gap-2">
+                        Taxi Control
+                    </h1>
+                    <p id="currentDateDisplay" class="text-xs text-amber-400 font-medium"></p>
+                </div>
+            </div>
+            
+            <div class="flex items-center gap-2">
+                <button onclick="toggleFullscreen()" id="fullscreenBtn" title="Pantalla completa" class="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-amber-400 border border-gray-700 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 active:scale-95">
+                    <i class="fa-solid fa-expand" id="fullscreenIcon"></i>
+                    <span id="fullscreenText" class="hidden sm:inline">Pantalla Completa</span>
+                </button>
+
+                <button onclick="openResetModal()" class="px-3 py-2 bg-gray-800 hover:bg-red-900/40 text-red-400 border border-gray-700 hover:border-red-800 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 active:scale-95">
+                    <i class="fa-solid fa-rotate-left"></i>
+                    <span>Nuevo Día</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Contenido Principal -->
+    <main class="max-w-5xl mx-auto w-full px-4 pt-4 flex-grow flex flex-col gap-4">
+
+        <!-- Resumen Total Acumulado -->
+        <section class="bg-gray-900 border border-gray-800 rounded-2xl p-4 shadow-lg flex justify-between items-center">
+            <div>
+                <span class="text-xs font-bold uppercase tracking-wider text-gray-400">Total Acumulado del Día</span>
+                <div class="text-3xl sm:text-4xl font-extrabold text-amber-400 tracking-tight" id="grandTotalDisplay">
+                    0,00 €
+                </div>
+            </div>
+            <span class="text-xs font-semibold px-3 py-1.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20" id="totalCountBadge">0 cobros</span>
+        </section>
+
+        <!-- Entrada de Importe con Guardado Directo al pulsar Tarjeta o Efectivo -->
+        <section class="bg-gray-900 border border-gray-800 rounded-2xl p-4 shadow-lg space-y-4">
+            <div>
+                <label for="amountInput" class="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1.5">Introduce el Importe (€)</label>
+                <div class="relative">
+                    <input type="number" step="0.01" min="0.01" id="amountInput" placeholder="0.00" required inputmode="decimal"
+                        class="w-full bg-gray-950 border-2 border-gray-700 focus:border-amber-500 rounded-xl py-3.5 pl-4 pr-12 text-3xl font-bold text-white placeholder-gray-600 outline-none transition shadow-inner">
+                    <span class="absolute right-4 top-1/2 -translate-y-1/2 text-2xl font-bold text-gray-400">€</span>
+                </div>
+            </div>
+
+            <!-- Botones de Acción Directa: Guardan directamente la carrera -->
+            <div class="grid grid-cols-2 gap-3">
+                <button type="button" onclick="saveDirect('card')" 
+                    class="py-4 px-4 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-black rounded-xl shadow-lg shadow-blue-600/20 active:scale-95 transition flex items-center justify-center gap-3 text-lg border border-blue-400/30">
+                    <i class="fa-solid fa-credit-card text-xl"></i>
+                    <span>TARJETA</span>
+                </button>
+                <button type="button" onclick="saveDirect('cash')" 
+                    class="py-4 px-4 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-black rounded-xl shadow-lg shadow-emerald-600/20 active:scale-95 transition flex items-center justify-center gap-3 text-lg border border-emerald-400/30">
+                    <i class="fa-solid fa-money-bill-wave text-xl"></i>
+                    <span>EFECTIVO</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- Botón Exportar a Excel y Enviar por Correo -->
+        <section>
+            <button onclick="exportAndEmail()" class="w-full py-3 px-4 bg-emerald-700 hover:bg-emerald-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-700/20 active:scale-98 transition flex items-center justify-center gap-2 text-sm border border-emerald-500">
+                <i class="fa-solid fa-file-excel text-lg"></i>
+                <span>Exportar a Excel y Enviar por Correo</span>
+            </button>
+        </section>
+
+        <!-- Dos Columnas Diferenciadas (Tarjeta vs Efectivo) -->
+        <section class="grid grid-cols-1 md:grid-cols-2 gap-4 flex-grow">
+            
+            <!-- Columna Tarjeta -->
+            <div class="bg-gray-900 border border-blue-900/50 rounded-2xl p-4 flex flex-col h-[380px] shadow-lg">
+                <div class="flex justify-between items-center pb-3 border-b border-gray-800">
+                    <div class="flex items-center gap-2 text-blue-400">
+                        <i class="fa-solid fa-credit-card"></i>
+                        <h2 class="font-bold text-base uppercase tracking-wider">Tarjeta</h2>
+                    </div>
+                    <span id="cardTotalHeader" class="text-lg font-black text-blue-400 bg-blue-950/50 px-2.5 py-0.5 rounded-lg border border-blue-800/40">0,00 €</span>
+                </div>
+
+                <div id="cardList" class="flex-grow overflow-y-auto my-3 space-y-2 pr-1">
+                    <!-- Registros dinámicos de Tarjeta -->
+                </div>
+
+                <div class="pt-2 border-t border-gray-800 text-xs text-gray-400 flex justify-between items-center">
+                    <span>Subtotal Tarjeta:</span>
+                    <span id="cardTotalFooter" class="font-bold text-sm text-blue-400">0,00 €</span>
+                </div>
+            </div>
+
+            <!-- Columna Efectivo -->
+            <div class="bg-gray-900 border border-emerald-900/50 rounded-2xl p-4 flex flex-col h-[380px] shadow-lg">
+                <div class="flex justify-between items-center pb-3 border-b border-gray-800">
+                    <div class="flex items-center gap-2 text-emerald-400">
+                        <i class="fa-solid fa-money-bill-wave"></i>
+                        <h2 class="font-bold text-base uppercase tracking-wider">Efectivo</h2>
+                    </div>
+                    <span id="cashTotalHeader" class="text-lg font-black text-emerald-400 bg-emerald-950/50 px-2.5 py-0.5 rounded-lg border border-emerald-800/40">0,00 €</span>
+                </div>
+
+                <div id="cashList" class="flex-grow overflow-y-auto my-3 space-y-2 pr-1">
+                    <!-- Registros dinámicos de Efectivo -->
+                </div>
+
+                <div class="pt-2 border-t border-gray-800 text-xs text-gray-400 flex justify-between items-center">
+                    <span>Subtotal Efectivo:</span>
+                    <span id="cashTotalFooter" class="font-bold text-sm text-emerald-400">0,00 €</span>
+                </div>
+            </div>
+
+        </section>
+
+    </main>
+
+    <!-- Modal de Confirmación de Borrado -->
+    <div id="deleteModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-gray-900 border border-gray-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4">
+            <div class="w-12 h-12 bg-red-500/10 text-red-500 border border-red-500/20 rounded-full flex items-center justify-center mx-auto text-xl">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+            </div>
+            <div class="text-center">
+                <h3 class="text-lg font-bold text-white">¿Borrar cobro?</h3>
+                <p id="deleteModalMessage" class="text-sm text-gray-400 mt-1">¿Estás seguro de que deseas eliminar este registro?</p>
+            </div>
+            <div class="grid grid-cols-2 gap-3 pt-2">
+                <button onclick="closeDeleteModal()" class="py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 font-semibold rounded-xl transition text-sm">
+                    Cancelar
+                </button>
+                <button id="confirmDeleteBtn" class="py-2.5 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-xl shadow-lg shadow-red-600/20 transition text-sm">
+                    Sí, borrar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Confirmación Nuevo Día -->
+    <div id="resetModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-gray-900 border border-gray-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4">
+            <div class="w-12 h-12 bg-amber-500/10 text-amber-500 border border-amber-500/20 rounded-full flex items-center justify-center mx-auto text-xl">
+                <i class="fa-solid fa-rotate-left"></i>
+            </div>
+            <div class="text-center">
+                <h3 class="text-lg font-bold text-white">Iniciar Nuevo Día</h3>
+                <p class="text-sm text-gray-400 mt-1">Esto borrará todos los registros para empezar de cero. ¿Deseas continuar?</p>
+            </div>
+            <div class="grid grid-cols-2 gap-3 pt-2">
+                <button onclick="closeResetModal()" class="py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 font-semibold rounded-xl transition text-sm">
+                    Cancelar
+                </button>
+                <button onclick="confirmReset()" class="py-2.5 bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold rounded-xl shadow-lg shadow-amber-500/20 transition text-sm">
+                    Sí, Iniciar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let transactions = [];
+        let pendingDeleteId = null;
+        let audioCtx = null;
+        const TARGET_EMAIL = 'juanan.sanjose@gmail.com';
+
+        window.onload = function() {
+            displayCurrentDate();
+            loadTransactions();
+            renderUI();
+            setupFullscreenListener();
+        };
+
+        function toggleFullscreen() {
+            if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+                const docEl = document.documentElement;
+                if (docEl.requestFullscreen) {
+                    docEl.requestFullscreen();
+                } else if (docEl.webkitRequestFullscreen) {
+                    docEl.webkitRequestFullscreen();
+                }
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                } else if (document.webkitExitFullscreen) {
+                    document.webkitExitFullscreen();
+                }
+            }
+        }
+
+        function setupFullscreenListener() {
+            const handleFsChange = () => {
+                const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+                const icon = document.getElementById('fullscreenIcon');
+                const text = document.getElementById('fullscreenText');
+                
+                if (isFs) {
+                    icon.className = "fa-solid fa-compress";
+                    text.textContent = "Salir Pantalla Completa";
+                } else {
+                    icon.className = "fa-solid fa-expand";
+                    text.textContent = "Pantalla Completa";
+                }
+            };
+
+            document.addEventListener('fullscreenchange', handleFsChange);
+            document.addEventListener('webkitfullscreenchange', handleFsChange);
+        }
+
+        function displayCurrentDate() {
+            const now = new Date();
+            const options = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' };
+            const dateStr = now.toLocaleDateString('es-ES', options);
+            document.getElementById('currentDateDisplay').textContent = dateStr.charAt(0).toUpperCase() + dateStr.slice(1);
+        }
+
+        // Sonido de ganar dinero ("Cha-Ching!" + caja metálica)
+        function playCoinSound() {
+            try {
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                if (audioCtx.state === 'suspended') {
+                    audioCtx.resume();
+                }
+
+                const now = audioCtx.currentTime;
+
+                // 1. Sonido inicial metálico
+                const chaOsc = audioCtx.createOscillator();
+                const chaGain = audioCtx.createGain();
+                chaOsc.type = 'triangle';
+                chaOsc.frequency.setValueAtTime(800, now);
+                chaOsc.frequency.exponentialRampToValueAtTime(1600, now + 0.06);
+
+                chaGain.gain.setValueAtTime(0.001, now);
+                chaGain.gain.linearRampToValueAtTime(0.25, now + 0.01);
+                chaGain.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
+
+                chaOsc.connect(chaGain);
+                chaGain.connect(audioCtx.destination);
+                chaOsc.start(now);
+                chaOsc.stop(now + 0.07);
+
+                // 2. Tono campana metálica cristalina
+                const chingTime = now + 0.07;
+                const metalFreqs = [2616.26, 3920.00, 5232.51];
+
+                metalFreqs.forEach((freq, idx) => {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(freq, chingTime);
+                    osc.frequency.exponentialRampToValueAtTime(freq * 0.98, chingTime + 0.45);
+
+                    const subVol = 0.3 / (idx + 1);
+                    gain.gain.setValueAtTime(0.001, chingTime);
+                    gain.gain.linearRampToValueAtTime(subVol, chingTime + 0.004);
+                    gain.gain.exponentialRampToValueAtTime(0.0001, chingTime + 0.45);
+
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+
+                    osc.start(chingTime);
+                    osc.stop(chingTime + 0.45);
+                });
+
+                // 3. Acorde ascendente triunfal de premio
+                const notes = [
+                    { freq: 1046.50, delay: 0.12 },
+                    { freq: 1318.51, delay: 0.18 },
+                    { freq: 1567.98, delay: 0.24 },
+                    { freq: 2093.00, delay: 0.30 }
+                ];
+
+                notes.forEach(note => {
+                    const noteTime = now + note.delay;
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(note.freq, noteTime);
+
+                    gain.gain.setValueAtTime(0.001, noteTime);
+                    gain.gain.linearRampToValueAtTime(0.2, noteTime + 0.005);
+                    gain.gain.exponentialRampToValueAtTime(0.0001, noteTime + 0.35);
+
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+
+                    osc.start(noteTime);
+                    osc.stop(noteTime + 0.35);
+                });
+
+            } catch (e) {
+                console.log("Audio no disponible.", e);
+            }
+        }
+
+        function saveTransactions() {
+            localStorage.setItem('taxi_transactions', JSON.stringify(transactions));
+        }
+
+        function loadTransactions() {
+            const stored = localStorage.getItem('taxi_transactions');
+            if (stored) {
+                try {
+                    transactions = JSON.parse(stored);
+                } catch (e) {
+                    transactions = [];
+                }
+            }
+        }
+
+        // Guardado directo sin botón de registrar intermedio
+        function saveDirect(method) {
+            const amountInput = document.getElementById('amountInput');
+            const amount = parseFloat(amountInput.value);
+
+            if (isNaN(amount) || amount <= 0) {
+                amountInput.focus();
+                return;
+            }
+
+            const now = new Date();
+            const timeString = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const dateString = now.toLocaleDateString('es-ES');
+
+            const newTransaction = {
+                id: Date.now().toString(),
+                amount: amount,
+                method: method,
+                time: timeString,
+                date: dateString,
+                timestamp: now.getTime()
+            };
+
+            transactions.unshift(newTransaction);
+            saveTransactions();
+            renderUI();
+
+            playCoinSound();
+
+            amountInput.value = '';
+            amountInput.focus();
+        }
+
+        function renderUI() {
+            const cardList = document.getElementById('cardList');
+            const cashList = document.getElementById('cashList');
+
+            cardList.innerHTML = '';
+            cashList.innerHTML = '';
+
+            let cardTotal = 0;
+            let cashTotal = 0;
+            let cardCount = 0;
+            let cashCount = 0;
+
+            transactions.forEach(tx => {
+                const isCard = tx.method === 'card';
+                if (isCard) {
+                    cardTotal += tx.amount;
+                    cardCount++;
+                } else {
+                    cashTotal += tx.amount;
+                    cashCount++;
+                }
+
+                const itemHTML = `
+                    <div class="flex justify-between items-center bg-gray-950 p-3 rounded-xl border border-gray-800 hover:border-gray-700 transition">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-8 h-8 rounded-lg ${isCard ? 'bg-blue-500/10 text-blue-400' : 'bg-emerald-500/10 text-emerald-400'} flex items-center justify-center font-bold text-xs">
+                                <i class="fa-solid ${isCard ? 'fa-credit-card' : 'fa-money-bill-wave'}"></i>
+                            </div>
+                            <div>
+                                <span class="font-extrabold text-white text-base">${tx.amount.toFixed(2).replace('.', ',')} €</span>
+                                <span class="block text-[10px] text-gray-500 font-medium">${tx.time}</span>
+                            </div>
+                        </div>
+                        <button onclick="promptDelete('${tx.id}')" title="Eliminar registro" 
+                            class="w-9 h-9 flex items-center justify-center text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition active:scale-90">
+                            <i class="fa-solid fa-trash-can text-sm"></i>
+                        </button>
+                    </div>
+                `;
+
+                if (isCard) {
+                    cardList.innerHTML += itemHTML;
+                } else {
+                    cashList.innerHTML += itemHTML;
+                }
+            });
+
+            if (cardCount === 0) {
+                cardList.innerHTML = `<div class="h-full flex items-center justify-center text-xs text-gray-600 italic">Sin cobros en tarjeta</div>`;
+            }
+            if (cashCount === 0) {
+                cashList.innerHTML = `<div class="h-full flex items-center justify-center text-xs text-gray-600 italic">Sin cobros en efectivo</div>`;
+            }
+
+            const grandTotal = cardTotal + cashTotal;
+            document.getElementById('grandTotalDisplay').textContent = grandTotal.toFixed(2).replace('.', ',') + ' €';
+            document.getElementById('totalCountBadge').textContent = `${transactions.length} ${transactions.length === 1 ? 'cobro' : 'cobros'}`;
+
+            document.getElementById('cardTotalHeader').textContent = cardTotal.toFixed(2).replace('.', ',') + ' €';
+            document.getElementById('cardTotalFooter').textContent = cardTotal.toFixed(2).replace('.', ',') + ' €';
+
+            document.getElementById('cashTotalHeader').textContent = cashTotal.toFixed(2).replace('.', ',') + ' €';
+            document.getElementById('cashTotalFooter').textContent = cashTotal.toFixed(2).replace('.', ',') + ' €';
+        }
+
+        function promptDelete(id) {
+            const tx = transactions.find(t => t.id === id);
+            if (!tx) return;
+
+            pendingDeleteId = id;
+            const methodText = tx.method === 'card' ? 'Tarjeta' : 'Efectivo';
+            document.getElementById('deleteModalMessage').textContent = `¿Deseas borrar el cobro de ${tx.amount.toFixed(2).replace('.', ',')} € (${methodText})?`;
+            
+            document.getElementById('confirmDeleteBtn').onclick = confirmDelete;
+            document.getElementById('deleteModal').classList.remove('hidden');
+        }
+
+        function closeDeleteModal() {
+            document.getElementById('deleteModal').classList.add('hidden');
+            pendingDeleteId = null;
+        }
+
+        function confirmDelete() {
+            if (pendingDeleteId) {
+                transactions = transactions.filter(t => t.id !== pendingDeleteId);
+                saveTransactions();
+                renderUI();
+            }
+            closeDeleteModal();
+        }
+
+        function openResetModal() {
+            document.getElementById('resetModal').classList.remove('hidden');
+        }
+
+        function closeResetModal() {
+            document.getElementById('resetModal').classList.add('hidden');
+        }
+
+        function confirmReset() {
+            transactions = [];
+            saveTransactions();
+            renderUI();
+            closeResetModal();
+        }
+
+        function exportAndEmail() {
+            if (transactions.length === 0) {
+                alert("No hay registros para exportar hoy.");
+                return;
+            }
+
+            const todayStr = new Date().toLocaleDateString('es-ES');
+            const cardTxs = transactions.filter(t => t.method === 'card');
+            const cashTxs = transactions.filter(t => t.method === 'cash');
+
+            const cardTotal = cardTxs.reduce((sum, t) => sum + t.amount, 0);
+            const cashTotal = cashTxs.reduce((sum, t) => sum + t.amount, 0);
+            const grandTotal = cardTotal + cashTotal;
+
+            const rows = transactions.map((t, idx) => ({
+                'Nº': transactions.length - idx,
+                'Fecha': t.date,
+                'Hora': t.time,
+                'Método de Pago': t.method === 'card' ? 'Tarjeta' : 'Efectivo',
+                'Importe (€)': t.amount
+            }));
+
+            rows.push({});
+            rows.push({ 'Método de Pago': 'TOTAL TARJETA', 'Importe (€)': cardTotal });
+            rows.push({ 'Método de Pago': 'TOTAL EFECTIVO', 'Importe (€)': cashTotal });
+            rows.push({ 'Método de Pago': 'GRAN TOTAL DEL DÍA', 'Importe (€)': grandTotal });
+
+            const worksheet = XLSX.utils.json_to_sheet(rows);
+            worksheet['!cols'] = [{ wch: 6 }, { wch: 12 }, { wch: 10 }, { wch: 18 }, { wch: 14 }];
+
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Cierre de Caja");
+
+            const filename = `Cierre_Taxi_${todayStr.replace(/\//g, '-')}.xlsx`;
+            XLSX.writeFile(workbook, filename);
+
+            const subject = encodeURIComponent(`Cierre de Caja Taxi - ${todayStr}`);
+            
+            let bodyText = `Hola,\n\n`;
+            bodyText += `Resumen del cierre de caja del día ${todayStr}:\n\n`;
+            bodyText += `-----------------------------------\n`;
+            bodyText += `• Total Tarjeta: ${cardTotal.toFixed(2).replace('.', ',')} € (${cardTxs.length} carreras)\n`;
+            bodyText += `• Total Efectivo: ${cashTotal.toFixed(2).replace('.', ',')} € (${cashTxs.length} carreras)\n`;
+            bodyText += `-----------------------------------\n`;
+            bodyText += `• GRAN TOTAL: ${grandTotal.toFixed(2).replace('.', ',')} € (${transactions.length} carreras)\n\n`;
+            bodyText += `El archivo Excel (${filename}) se ha descargado en tu dispositivo.\n\nUn saludo.`;
+
+            const mailtoUrl = `mailto:${TARGET_EMAIL}?subject=${subject}&body=${encodeURIComponent(bodyText)}`;
+
+            setTimeout(() => {
+                window.location.href = mailtoUrl;
+            }, 500);
+        }
+    </script>
+</body>
+</html>
+```
